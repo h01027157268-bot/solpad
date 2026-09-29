@@ -93,31 +93,50 @@ jobs:
             curl -sSfL https://release.anza.xyz/v2.1.0/install | sh
           fi
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_ENV_PATH_FILE" 2>/dev/null || true
-          ls -la "$HOME/.local/share/solana/install/active_release/bin" || true
       - name: Wallet
+        env:
+          KEYPAIR_SECRET: ${{ secrets.DEPLOY_KEYPAIR }}
         run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           mkdir -p ~/.config/solana
-          if [ -n "${{ secrets.DEPLOY_KEYPAIR }}" ]; then
-            echo "${{ secrets.DEPLOY_KEYPAIR }}" > ~/.config/solana/id.json
+          if [ -n "$KEYPAIR_SECRET" ]; then
+            node scripts/base58-to-keypair.mjs "$KEYPAIR_SECRET" ~/.config/solana/id.json
           else
             solana-keygen new --no-bip39-passphrase --silent --force -o ~/.config/solana/id.json
           fi
           solana config set --url https://api.devnet.solana.com --keypair ~/.config/solana/id.json
-          for i in 1 2 3 4; do
-            solana airdrop 2 || solana airdrop 1 || sleep 25
-            solana balance | grep -q 'SOL' && break
+          solana address
+          for i in 1 2 3 4 5 6; do
+            if ! solana balance | grep -q '^0 SOL'; then break; fi
+            echo "requesting devnet SOL (attempt $i)"
+            solana airdrop 1 || true
+            sleep 20
           done
           solana balance
-      - name: Program keypair
-        run: |
-          mkdir -p target/deploy
-          if [ -n "${{ secrets.PROGRAM_KEYPAIR }}" ]; then
-            echo "${{ secrets.PROGRAM_KEYPAIR }}" > target/deploy/launchpad-keypair.json
+          if solana balance | grep -q '^0 SOL'; then
+            echo "::error::no devnet SOL. The public faucet rate limits CI IPs - add a funded keypair as the DEPLOY_KEYPAIR secret (docs/教程.md)."
+            exit 1
           fi
+      - name: Program keypair (stable address)
+        env:
+          PROGRAM_KEYPAIR_SECRET: ${{ secrets.PROGRAM_KEYPAIR }}
+        run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          mkdir -p target/deploy
+          if [ -n "$PROGRAM_KEYPAIR_SECRET" ]; then
+            node scripts/base58-to-keypair.mjs "$PROGRAM_KEYPAIR_SECRET" target/deploy/launchpad-keypair.json
+          elif [ ! -f target/deploy/launchpad-keypair.json ]; then
+            solana-keygen new --no-bip39-passphrase --silent --force -o target/deploy/launchpad-keypair.json
+          fi
+          solana address -k target/deploy/launchpad-keypair.json
+      - name: Sync declare_id! with this keypair
+        run: |
+          anchor keys sync
+          grep -n 'declare_id' programs/launchpad/src/lib.rs
       - name: Deploy
         id: deploy
         run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           anchor build
           anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/launchpad-keypair.json)
@@ -129,20 +148,19 @@ jobs:
         run: npm --prefix app ci
       - name: Fund the platform treasury so it can receive rent-exempt transfers
         run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           TREASURY="${{ inputs.treasury || secrets.TREASURY || 'EYB8XKsysDpSkK4PdBg4Rx3EMqY5NJ1LGfmvUdiKkqaQ' }}"
-          # the faucet is rate limited, so top the treasury up from the deploy
-          # wallet instead - that always works because the deploy wallet was
-          # just funded
           BALANCE=$(solana balance "$TREASURY" | awk '{print $1}' | cut -d. -f1)
           if [ "${BALANCE:-0}" -lt 1 ]; then
             solana transfer "$TREASURY" 0.02 --allow-unfunded-recipient --url https://api.devnet.solana.com || true
           fi
           solana balance "$TREASURY"
           echo "treasury: \`$TREASURY\`" >> $GITHUB_STEP_SUMMARY
-      - name: Initialise Config (this is what pins the 1% to your treasury)
+      - name: Initialise Config (this pins the 1% to your treasury)
         env:
           NEXT_PUBLIC_RPC_URL: https://api.devnet.solana.com
         run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           TREASURY="${{ inputs.treasury || secrets.TREASURY || 'EYB8XKsysDpSkK4PdBg4Rx3EMqY5NJ1LGfmvUdiKkqaQ' }}"
           node app/scripts/init-config.mjs "${{ steps.deploy.outputs.program_id }}" "$TREASURY" "${{ inputs.fee_sol || '0' }}" 0
       - name: Upload the IDL for `npm run connect`
@@ -150,7 +168,3 @@ jobs:
         with:
           name: devnet-idl
           path: target/idl/launchpad.json
-
-
-
-

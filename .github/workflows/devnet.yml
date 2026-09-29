@@ -30,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ''
       - name: Unit tests (no validator needed)
         working-directory: programs/launchpad
         run: cargo test --lib
@@ -140,5 +142,6 @@ jobs:
         with:
           name: devnet-idl
           path: target/idl/launchpad.json
+
 
 

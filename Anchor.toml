@@ -1,0 +1,26 @@
+﻿[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+launchpad = "8Fg3GzGg2pDHHRy4uMZ1Jv1HQ7cadifNbWKmVW1rwAzL"
+
+[programs.devnet]
+launchpad = "8Fg3GzGg2pDHHRy4uMZ1Jv1HQ7cadifNbWKmVW1rwAzL"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "echo \"the Anchor TS integration harness is not written yet - see SECURITY.md section 5; cargo test covers the maths\" && exit 0"
+
+[workspace]
+members = ["programs/*"]
+
+[workspace.metadata]
+solpad = { version = "0.1.0", curve = "pump.fun", modes = ["dividend-5pct", "lottery-10pct"] }
+

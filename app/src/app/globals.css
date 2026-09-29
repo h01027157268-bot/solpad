@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #000;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #334155;
+  color: #fff;
+}
+
+/* thin, almost invisible scrollbars - same restraint as the reference UI */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer components {
+  /* labels: 10px, light, uppercase, wide tracking - the reference's signature */
+  .label-xs {
+    @apply text-[10px] font-light uppercase tracking-widest text-slate-400;
+  }
+  .label-eyebrow {
+    @apply text-[10px] font-light uppercase tracking-[0.3em] text-slate-600;
+  }
+  .value-sm {
+    @apply text-sm font-extralight text-white;
+  }
+  .card {
+    @apply rounded-2xl border border-white/[0.07] bg-black/80;
+  }
+  .card-inset {
+    @apply rounded-xl border border-white/[0.05] bg-white/[0.02];
+  }
+  .input-base {
+    @apply w-full rounded-lg border border-slate-800 bg-black px-3 py-2.5 text-sm font-extralight text-white placeholder-slate-700 transition-colors focus:border-white/40 focus:outline-none;
+  }
+  .pill {
+    @apply shrink-0 rounded-full border px-3 py-1 text-[10px] font-light uppercase tracking-widest transition-colors;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[11px] font-light uppercase tracking-widest transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-white text-black hover:bg-slate-200;
+  }
+  .btn-ghost {
+    @apply btn border border-white/10 text-slate-300 hover:border-white/30 hover:text-white;
+  }
+  .btn-quiet {
+    @apply btn border border-white/[0.06] bg-white/[0.02] text-slate-400 hover:text-white;
+  }
+  .text-up {
+    @apply text-[#c8f7d4];
+  }
+  .text-down {
+    @apply text-[#ffa2ae];
+  }
+  .num {
+    @apply font-extralight tabular-nums text-white;
+  }
+}

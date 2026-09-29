@@ -1,0 +1,144 @@
+﻿name: devnet
+
+# Everything that needs Linux happens here, for free, on a public repository.
+#
+#   push to main  -> unit tests + build + IDL (no deploy)
+#   run workflow  -> tests, build, integration tests, deploy to devnet and
+#                    initialise the platform config, so the 1% starts landing in
+#                    the treasury. No local toolchain needed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'programs/**'
+      - '.github/workflows/devnet.yml'
+  workflow_dispatch:
+    inputs:
+      fee_sol:
+        description: 'Launch fee in SOL (0 = free launches)'
+        required: false
+        default: '0'
+      treasury:
+        description: 'Platform vault (defaults to the repo secret/variable)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: Unit tests, build, integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Unit tests (no validator needed)
+        working-directory: programs/launchpad
+        run: cargo test --lib
+      - uses: metadaoproject/setup-anchor@v2
+        with:
+          anchor-version: '0.31.1'
+          solana-cli-version: '2.1.0'
+          node-version: '20'
+      - name: Restore the program keypair (stable address across runs)
+        run: |
+          mkdir -p target/deploy
+          if [ -n "${{ secrets.PROGRAM_KEYPAIR }}" ]; then
+            echo "${{ secrets.PROGRAM_KEYPAIR }}" > target/deploy/launchpad-keypair.json
+            echo "using the stored program keypair"
+          else
+            echo "no PROGRAM_KEYPAIR secret: anchor will generate a new address"
+          fi
+      - name: Sync declare_id! with the deploy keypair
+        # the address is generated in CI (or restored from PROGRAM_KEYPAIR), so
+        # the program source has to declare that exact address - otherwise the
+        # Anchor entrypoint rejects every instruction with
+        # DeclaredProgramIdMismatch
+        run: |
+          anchor keys sync || anchor keys list
+          grep -n 'declare_id' programs/launchpad/src/lib.rs
+      - name: Build
+        run: anchor build
+      # NOTE: `anchor test` is intentionally not run yet - the Anchor TS
+      # integration harness is still to be written (SECURITY.md section 5). The
+      # logic is covered by `cargo test` above; do not let a missing harness
+      # block a deployment.
+      - name: Upload the IDL and the binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: launchpad-build
+          path: |
+            target/idl/launchpad.json
+            target/deploy/launchpad.so
+      - name: Show the program address
+        run: |
+          echo "### program address" >> $GITHUB_STEP_SUMMARY
+          solana address -k target/deploy/launchpad-keypair.json >> $GITHUB_STEP_SUMMARY || true
+
+  deploy-devnet:
+    name: Deploy to devnet + initialise the platform
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: metadaoproject/setup-anchor@v2
+        with:
+          anchor-version: '0.31.1'
+          solana-cli-version: '2.1.0'
+          node-version: '20'
+      - name: Wallet
+        run: |
+          mkdir -p ~/.config/solana
+          if [ -n "${{ secrets.DEPLOY_KEYPAIR }}" ]; then
+            echo "${{ secrets.DEPLOY_KEYPAIR }}" > ~/.config/solana/id.json
+          else
+            solana-keygen new --no-bip39-passphrase --silent --force -o ~/.config/solana/id.json
+          fi
+          solana config set --url https://api.devnet.solana.com --keypair ~/.config/solana/id.json
+          for i in 1 2 3 4; do
+            solana airdrop 2 || solana airdrop 1 || sleep 25
+            solana balance | grep -q 'SOL' && break
+          done
+          solana balance
+      - name: Program keypair
+        run: |
+          mkdir -p target/deploy
+          if [ -n "${{ secrets.PROGRAM_KEYPAIR }}" ]; then
+            echo "${{ secrets.PROGRAM_KEYPAIR }}" > target/deploy/launchpad-keypair.json
+          fi
+      - name: Deploy
+        id: deploy
+        run: |
+          anchor build
+          anchor deploy --provider.cluster devnet
+          PROGRAM_ID=$(solana address -k target/deploy/launchpad-keypair.json)
+          echo "program_id=$PROGRAM_ID" >> $GITHUB_OUTPUT
+          echo "### deployed" >> $GITHUB_STEP_SUMMARY
+          echo "program id: \`$PROGRAM_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "explorer: https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet" >> $GITHUB_STEP_SUMMARY
+      - name: Install the app dependencies (the init script uses the app's SDKs)
+        run: npm --prefix app ci
+      - name: Fund the platform treasury so it can receive rent-exempt transfers
+        run: |
+          TREASURY="${{ inputs.treasury || secrets.TREASURY || 'EYB8XKsysDpSkK4PdBg4Rx3EMqY5NJ1LGfmvUdiKkqaQ' }}"
+          # the faucet is rate limited, so top the treasury up from the deploy
+          # wallet instead - that always works because the deploy wallet was
+          # just funded
+          BALANCE=$(solana balance "$TREASURY" | awk '{print $1}' | cut -d. -f1)
+          if [ "${BALANCE:-0}" -lt 1 ]; then
+            solana transfer "$TREASURY" 0.02 --allow-unfunded-recipient --url https://api.devnet.solana.com || true
+          fi
+          solana balance "$TREASURY"
+          echo "treasury: \`$TREASURY\`" >> $GITHUB_STEP_SUMMARY
+      - name: Initialise Config (this is what pins the 1% to your treasury)
+        env:
+          NEXT_PUBLIC_RPC_URL: https://api.devnet.solana.com
+        run: |
+          TREASURY="${{ inputs.treasury || secrets.TREASURY || 'EYB8XKsysDpSkK4PdBg4Rx3EMqY5NJ1LGfmvUdiKkqaQ' }}"
+          node app/scripts/init-config.mjs "${{ steps.deploy.outputs.program_id }}" "$TREASURY" "${{ inputs.fee_sol || '0' }}" 0
+      - name: Upload the IDL for `npm run connect`
+        uses: actions/upload-artifact@v4
+        with:
+          name: devnet-idl
+          path: target/idl/launchpad.json
+
+

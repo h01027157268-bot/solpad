@@ -1,0 +1,16 @@
+﻿{
+  "name": "solpad",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SolPad - Solana fair-launch launchpad (dividend + lottery tax modes)",
+  "scripts": {
+    "app:dev": "npm --prefix app run dev",
+    "app:build": "npm --prefix app run build",
+    "test:economics": "npm --prefix app run test:economics",
+    "test:market": "npm --prefix app run test:market",
+    "test:app": "npm --prefix app run test",
+    "anchor:build": "anchor build",
+    "anchor:test": "anchor test",
+    "anchor:deploy": "anchor deploy --provider.cluster devnet"
+  }
+}

@@ -1,0 +1,79 @@
+﻿name: verify
+
+# Produces the deterministic, reproducible build hash that Solscan, the Solana
+# Explorer and SolanaFM display as "verified build", and publishes it on-chain
+# through the OtterSec verify program.
+#
+#   push a tag (v0.1.0)  ->  builds once, uploads the artifact
+#   run the workflow manually with `verify` -> publishes the verification
+#
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      program_id:
+        description: 'Deployed program id to verify (published on the explorers)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: Deterministic build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Rust + Anchor
+        uses: metadaoproject/setup-anchor@v2
+        with:
+          anchor-version: '0.31.1'
+          solana-cli-version: '2.1.0'
+          node-version: '20'
+      - name: Install solana-verify
+        run: |
+          cargo install solana-verify --locked
+          solana-verify --version
+      - name: Reproducible build
+        run: |
+          solana-verify build --library-name launchpad
+          echo "executable hash:" > build-hash.txt
+          solana-verify get-executable-hash target/deploy/launchpad.so >> build-hash.txt
+          echo "program id:" >> build-hash.txt
+          solana-verify get-program-id --url "$RPC_URL" >> build-hash.txt || true
+        env:
+          RPC_URL: https://api.mainnet-beta.solana.com
+      - name: Upload the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: launchpad-verified-build
+          path: |
+            target/deploy/launchpad.so
+            target/idl/launchpad.json
+            build-hash.txt
+
+  verify:
+    name: Publish verification on-chain
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.program_id != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: metadaoproject/setup-anchor@v2
+        with:
+          anchor-version: '0.31.1'
+          solana-cli-version: '2.1.0'
+          node-version: '20'
+      - name: Install solana-verify
+        run: cargo install solana-verify --locked
+      - name: Verify from the repository
+        run: |
+          solana-verify verify-from-repo \
+            --url https://api.mainnet-beta.solana.com \
+            --program-id "${{ inputs.program_id }}" \
+            --commit-hash "$GITHUB_SHA" \
+            --library-name launchpad
+        env:
+          SOLANA_KEYPAIR: ${{ secrets.SOLANA_KEYPAIR }}
